@@ -72,70 +72,97 @@ class IdahoSORScraper:
             }
             
             # Extract Offender Identification section
-            # Look for the identification table/section
             tables = soup.find_all('table')
             
             for table in tables:
+                table_text = table.get_text()
+                
+                # Check if this is the offenses table
+                if 'Offenses Requiring Registration' in table_text:
+                    rows = table.find_all('tr')
+                    
+                    # Find the header row
+                    header_idx = -1
+                    for idx, row in enumerate(rows):
+                        cells = row.find_all(['th', 'td'])
+                        cell_texts = [c.get_text(strip=True) for c in cells]
+                        
+                        # Check if this is the header row with all required columns
+                        has_offense = any('Offense' in text for text in cell_texts)
+                        has_description = any('Description' in text for text in cell_texts)
+                        has_date = any('Date' in text for text in cell_texts)
+                        has_place = any('Place' in text or 'Conviction' in text for text in cell_texts)
+                        
+                        if has_offense and has_description and has_date and has_place:
+                            header_idx = idx
+                            break
+                    
+                    # Process data rows after the header
+                    if header_idx >= 0:
+                        for row in rows[header_idx + 1:]:
+                            cells = row.find_all('td')
+                            
+                            # Must have exactly 4 cells for valid offense row
+                            if len(cells) != 4:
+                                continue
+                            
+                            # Extract individual cell values
+                            offense_code = cells[0].get_text(strip=True)
+                            description = cells[1].get_text(strip=True)
+                            date = cells[2].get_text(strip=True)
+                            location = cells[3].get_text(strip=True)
+                            
+                            # Validate that this looks like a real offense code (not concatenated data)
+                            # Offense codes typically look like "18-1508" or similar
+                            if not offense_code:
+                                continue
+                            
+                            # Skip if offense_code contains the description (means it's concatenated)
+                            if description and description in offense_code:
+                                continue
+                            
+                            # Skip if the offense code is too long (concatenated data)
+                            if len(offense_code) > 50:
+                                continue
+                            
+                            offense = {
+                                'offense': offense_code,
+                                'description': description,
+                                'date': date,
+                                'location': location
+                            }
+                            
+                            # Add only if not already in list
+                            if offense not in details['offenses']:
+                                details['offenses'].append(offense)
+                    
+                    # Once we've processed the offenses table, skip to next table
+                    continue
+                
+                # Extract identification info from non-offense tables
                 rows = table.find_all('tr')
                 for row in rows:
-                    cells = row.find_all(['td', 'th'])
-                    if len(cells) >= 2:
+                    cells = row.find_all('td')
+                    
+                    # Look for label-value pairs
+                    if len(cells) == 2:
                         label = cells[0].get_text(strip=True).rstrip(':')
                         value = cells[1].get_text(strip=True)
-                        if label and value:
-                            details['identification'][label] = value
-            
-            # Extract offenses - look for offense-related sections
-            # Common pattern: tables or divs containing offense information
-            offense_headers = soup.find_all(text=re.compile(r'offense|conviction', re.I))
-            
-            for header in offense_headers:
-                parent_table = header.find_parent('table')
-                if parent_table:
-                    rows = parent_table.find_all('tr')
-                    current_offense = {}
-                    
-                    for row in rows:
-                        cells = row.find_all(['td', 'th'])
-                        if len(cells) >= 2:
-                            label = cells[0].get_text(strip=True).rstrip(':')
-                            value = cells[1].get_text(strip=True)
-                            
-                            if 'description' in label.lower() or 'offense' in label.lower():
-                                if current_offense:
-                                    details['offenses'].append(current_offense)
-                                current_offense = {'description': value}
-                            elif 'date' in label.lower():
-                                current_offense['date'] = value
-                            elif 'location' in label.lower() or 'county' in label.lower():
-                                current_offense['location'] = value
-                    
-                    if current_offense and current_offense not in details['offenses']:
-                        details['offenses'].append(current_offense)
-            
-            # Alternative parsing for offenses in different format
-            if not details['offenses']:
-                # Look for any structured data that might contain offense info
-                for table in tables:
-                    text = table.get_text()
-                    if any(keyword in text.lower() for keyword in ['offense', 'conviction', 'crime']):
-                        rows = table.find_all('tr')
-                        for i, row in enumerate(rows):
-                            cells = row.find_all('td')
-                            if len(cells) >= 3:
-                                offense = {
-                                    'description': cells[0].get_text(strip=True),
-                                    'date': cells[1].get_text(strip=True) if len(cells) > 1 else '',
-                                    'location': cells[2].get_text(strip=True) if len(cells) > 2 else ''
-                                }
-                                if offense['description']:
-                                    details['offenses'].append(offense)
+                        
+                        # Skip offense-related fields and empty values
+                        skip_keywords = ['offense', 'description', 'date', 'place', 'conviction', 'requiring', 'registration']
+                        if label and value and not any(keyword in label.lower() for keyword in skip_keywords):
+                            # Don't overwrite if already exists
+                            if label not in details['identification']:
+                                details['identification'][label] = value
             
             time.sleep(0.5)  # Be respectful to the server
             return details
             
         except Exception as e:
             print(f"Error getting offender details from {offender_url}: {e}")
+            import traceback
+            traceback.print_exc()
             return {'identification': {}, 'offenses': []}
 
     def parse_table(self, html):
@@ -211,10 +238,12 @@ class IdahoSORScraper:
                 }
                 
                 offenders.append(offender_data)
-                print(f"Processed: {name}")
+                print(f"Processed: {name} - Found {len(details.get('offenses', []))} offense(s)")
                 
             except Exception as e:
                 print(f"Error parsing row: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
         
         return offenders
