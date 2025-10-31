@@ -9,12 +9,14 @@ import json
 import os
 from datetime import datetime
 from PIL import Image as PILImage
+import sys
 
 class OffenderPDFGenerator:
-    def __init__(self, json_file='idaho_sex_offenders.json', images_dir='offender_images'):
-        self.json_file = json_file
-        self.images_dir = images_dir
-        self.output_file = 'bonner_county_offenders.pdf'
+    def __init__(self, county='BONNER'):
+        self.county = county.upper()
+        self.json_file = f'{self.county.lower()}_county_offenders.json'
+        self.images_dir = os.path.join('offender_images', self.county.lower())
+        self.output_file = f'{self.county.lower()}_county_offenders.pdf'
         
         # Page setup
         self.page_width = 8.5 * inch
@@ -41,8 +43,12 @@ class OffenderPDFGenerator:
         print(f"Rows per page: {self.rows_per_page}")
         
         # Load data
-        with open(json_file, 'r', encoding='utf-8') as f:
+        with open(self.json_file, 'r', encoding='utf-8') as f:
             self.offenders = json.load(f)
+        
+        print(f"\nGenerating PDF for {self.county} County")
+        print(f"Reading from: {self.json_file}")
+        print(f"Output will be: {self.output_file}")
 
     def classify_offense(self, offender):
         """Classify offenses into broad categories"""
@@ -121,7 +127,7 @@ class OffenderPDFGenerator:
         # Title
         canvas.setFont('Helvetica-Bold', 18)
         canvas.drawCentredString(self.page_width / 2, self.page_height - 0.5 * inch, 
-                                "Bonner County Sex Offenders")
+                                f"{self.county.title()} County Sex Offenders")
         
         # Date
         canvas.setFont('Helvetica', 10)
@@ -320,7 +326,13 @@ class OffenderPDFGenerator:
             print(f"  {cls}: {count}")
 
 def main():
-    generator = OffenderPDFGenerator()
+    # Default to BONNER county, but allow command-line parameter
+    county = 'BONNER'
+    
+    if len(sys.argv) > 1:
+        county = sys.argv[1].upper()
+    
+    generator = OffenderPDFGenerator(county=county)
     generator.create_photo_grid()
 
 if __name__ == "__main__":

@@ -5,23 +5,33 @@ import os
 import re
 from urllib.parse import urljoin, urlparse
 import time
+import sys
 
 class IdahoSORScraper:
-    def __init__(self):
+    def __init__(self, county='BONNER'):
         self.base_url = "https://apps.isp.idaho.gov/sor_id/"
+        self.county = county.upper()
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
         self.offenders_data = []
-        self.images_dir = "offender_images"
+        
+        # County-specific directories and files
+        self.images_dir = os.path.join("offender_images", self.county.lower())
+        self.output_file = f'{self.county.lower()}_county_offenders.json'
+        
         os.makedirs(self.images_dir, exist_ok=True)
+        
+        print(f"Scraping {self.county} County")
+        print(f"Images will be saved to: {self.images_dir}")
+        print(f"Data will be saved to: {self.output_file}")
 
     def make_post_request(self, page=None):
         """Make POST request to the SOR page"""
         url = urljoin(self.base_url, "SOR")
         data = {
-            'cnt': 'BONNER',
+            'cnt': self.county,
             'rad': 'A',
             'sz': '2814',
             'form': '4'
@@ -113,7 +123,6 @@ class IdahoSORScraper:
                             location = cells[3].get_text(strip=True)
                             
                             # Validate that this looks like a real offense code (not concatenated data)
-                            # Offense codes typically look like "18-1508" or similar
                             if not offense_code:
                                 continue
                             
@@ -271,7 +280,7 @@ class IdahoSORScraper:
 
     def scrape_all(self):
         """Main scraping function"""
-        print("Starting scrape...")
+        print(f"\nStarting scrape for {self.county} County...")
         
         # Get first page
         print("Fetching page 1...")
@@ -295,15 +304,23 @@ class IdahoSORScraper:
                 print(f"Error fetching page {page_num}: {e}")
         
         # Save to JSON
-        output_file = 'idaho_sex_offenders.json'
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(self.output_file, 'w', encoding='utf-8') as f:
             json.dump(self.offenders_data, f, indent=2, ensure_ascii=False)
         
         print(f"\n\nScraping complete!")
         print(f"Total offenders: {len(self.offenders_data)}")
-        print(f"Data saved to: {output_file}")
+        print(f"Data saved to: {self.output_file}")
         print(f"Images saved to: {self.images_dir}/")
 
-if __name__ == "__main__":
-    scraper = IdahoSORScraper()
+def main():
+    # Default to BONNER county, but allow command-line parameter
+    county = 'BONNER'
+    
+    if len(sys.argv) > 1:
+        county = sys.argv[1].upper()
+    
+    scraper = IdahoSORScraper(county=county)
     scraper.scrape_all()
+
+if __name__ == "__main__":
+    main()
